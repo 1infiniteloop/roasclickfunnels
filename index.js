@@ -641,31 +641,31 @@ const ClickFunnels = {
     },
 };
 
-// let email = "kenmaranda@gmail.com";
 // let date = "2022-05-05";
 
 // let roas_user_id = "aobouNIIRJMSjsDs2dIXAwEKmiY2";
 
 // const queryDocs = (snapshot) => snapshot.docs.map((doc) => doc.data());
-// from(getDocs(query(collectionGroup(db, "project_accounts"), where("roas_user_id", "==", roas_user_id)))).pipe(
-//     rxmap(queryDocs),
-//     rxmap(lofilter((project) => project.shopping_cart_name !== undefined)),
-//     rxmap(head),
-//     concatMap((project) => {
-//         return from(
-//             getDocs(query(collectionGroup(db, "integrations"), where("account_name", "==", "facebook"), where("user_id", "==", roas_user_id)))
-//         ).pipe(
-//             rxmap(queryDocs),
-//             rxmap(head),
-//             rxmap((facebook) => ({ ...facebook, ...project }))
-//         );
-//     })
-// )
-// .subscribe((project) => {
-//     let { roas_user_id: user_id, fb_ad_account_id, payment_processor_id, shopping_cart_id } = project;
-//     let payload = { user_id, fb_ad_account_id, payment_processor_id, shopping_cart_id, date };
+// from(getDocs(query(collectionGroup(db, "project_accounts"), where("roas_user_id", "==", roas_user_id))))
+//     .pipe(
+//         rxmap(queryDocs),
+//         rxmap(lofilter((project) => project.shopping_cart_name !== undefined)),
+//         rxmap(head),
+//         concatMap((project) => {
+//             return from(
+//                 getDocs(query(collectionGroup(db, "integrations"), where("account_name", "==", "facebook"), where("user_id", "==", roas_user_id)))
+//             ).pipe(
+//                 rxmap(queryDocs),
+//                 rxmap(head),
+//                 rxmap((facebook) => ({ ...facebook, ...project }))
+//             );
+//         })
+//     )
+//     .subscribe((project) => {
+//         let { roas_user_id: user_id, fb_ad_account_id, payment_processor_id, shopping_cart_id } = project;
+//         let payload = { user_id, fb_ad_account_id, payment_processor_id, shopping_cart_id, date };
 
-//     ClickFunnels.report.get({ user_id: roas_user_id, date, fb_ad_account_id }).subscribe();
-// });
+//         ClickFunnels.report.get({ user_id: roas_user_id, date, fb_ad_account_id }).subscribe(pipeLog);
+//     });
 
 exports.ClickFunnels = ClickFunnels;
