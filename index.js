@@ -1,12 +1,37 @@
 const moment = require("moment-timezone");
-const { map, pipe, flatten, values, head, identity, of, defaultTo, toLower, sum, curry, uniq, reject, paths, pick, not, mergeAll } = require("ramda");
+const {
+    map,
+    pipe,
+    flatten,
+    values,
+    head,
+    identity,
+    of,
+    defaultTo,
+    toLower,
+    sum,
+    curry,
+    uniq,
+    reject,
+    paths,
+    pick,
+    not,
+    mergeAll,
+    hasPath,
+    anyPass,
+} = require("ramda");
 const { size, isUndefined, uniqBy: lodashUniqBy, compact, isEmpty, uniqBy, toNumber, groupBy: lodashGroupBy, flattenDeep } = require("lodash");
-const { from, zip, of: rxof, concatMap, map: rxmap, filter: rxfilter, reduce: rxreduce, defaultIfEmpty, catchError, iif } = require("rxjs");
+const { from, zip, of: rxof, concatMap, map: rxmap, filter: rxfilter, reduce: rxreduce, defaultIfEmpty, catchError, iif, tap } = require("rxjs");
 const { db } = require("./database");
 const { query, where, getDoc, getDocs, collection, collectionGroup, doc, limit } = require("firebase/firestore");
 const { get, all, mod, into, matching } = require("shades");
 const { Facebook: RoasFacebook } = require("roasfacebook");
 const { logroupby, lokeyby, pipeLog, louniqby, lofilter, loorderby } = require("helpers");
+
+const ipEvents = curry((version, ip, roas_user_id) => {
+    let q = query(collection(db, "events"), where(version, "==", ip), where("roas_user_id", "==", roas_user_id));
+    return from(getDocs(q)).pipe(rxmap(ClickFunnels.utilities.queryDocs));
+});
 
 const Facebook = {
     ads: {
@@ -174,9 +199,13 @@ const Events = {
 
 const Event = {
     ad: {
-        id: ({ fb_ad_id, h_ad_id, ad_id } = {}) => {
+        id: ({ fb_ad_id, h_ad_id, ad_id, fb_id } = {}) => {
             let func_name = `Event:ad:id`;
             console.log(func_name);
+
+            if (fb_id) {
+                return fb_id;
+            }
 
             if (ad_id) {
                 return ad_id;
@@ -229,24 +258,24 @@ const Event = {
 
         if (get("created_at_unix_timestamp")(value)) {
             timestamp = get("created_at_unix_timestamp")(value);
-            console.log(timestamp);
+            // console.log(timestamp);
             return timestamp;
         }
 
         if (get("utc_unix_time")(value)) {
             let timestamp = get("utc_unix_time")(value);
-            console.log(timestamp);
+            // console.log(timestamp);
             return timestamp;
         }
 
         if (get("utc_iso_datetime")(value)) {
             let timestamp = pipe(get("utc_unix_time"), (value) => moment(value).unix())(value);
-            console.log(timestamp);
+            // console.log(timestamp);
             return timestamp;
         }
 
         timestamp = get("unix_datetime")(value);
-        console.log(timestamp);
+        // console.log(timestamp);
 
         if (!timestamp) {
             console.log("notimestamp");
@@ -311,6 +340,15 @@ const ClickFunnels = {
         queryDocs: (snapshot) => snapshot.docs.map((doc) => doc.data()),
 
         rxreducer: rxreduce((prev, curr) => [...prev, ...curr]),
+
+        has_ad_id: anyPass([
+            hasPath(["fb_ad_id"]),
+            hasPath(["additional_info", "fb_ad_id"]),
+            hasPath(["h_ad_id"]),
+            hasPath(["additional_info", "h_ad_id"]),
+            hasPath(["fb_id"]),
+            hasPath(["additional_info", "fb_id"]),
+        ]),
     },
 
     events: {
@@ -319,6 +357,7 @@ const ClickFunnels = {
             console.log(func_name);
 
             return rxof(events).pipe(
+                // rxmap(pipeLog),
                 rxmap((events) => {
                     let profiles = pipe(get(all, "contact_profile"), compact)(events);
                     let first_name = pipe(get(all, "first_name"), head, defaultTo(""))(profiles);
@@ -483,6 +522,7 @@ const ClickFunnels = {
 
             let orders = ClickFunnels.users.date.events(date, user_id).pipe(
                 rxmap(values),
+                // rxmap(pipeLog),
                 concatMap(identity),
                 concatMap(ClickFunnels.events.orders),
                 rxmap(of),
@@ -497,13 +537,11 @@ const ClickFunnels = {
                 })),
                 rxmap(of),
                 ClickFunnels.utilities.rxreducer
-                // rxmap(pipeLog)
             );
 
             let customers_from_cf = from(orders).pipe(
                 rxmap(identity),
                 concatMap(identity),
-
                 concatMap((customer) =>
                     from(ClickFunnels.user.get("email", customer.lower_case_email)).pipe(
                         concatMap(identity),
@@ -511,12 +549,13 @@ const ClickFunnels = {
                             ad_id: pipe(
                                 compact,
                                 uniq,
-                                reject((id) => id == "%7B%7Bad.id%7D%7D"),
+                                reject((id) => id == "%7B%7Bad.id%7D%7D" || id == "{{ad.id}}"),
                                 head
                             )(ClickFunnels.events.fb_ad_id.get(cfevent)),
                             timestamp: pipe(get("updated_at_unix_timestamp"))(cfevent),
                             ip: pipe(ClickFunnels.events.ip.get, compact, uniq)(cfevent),
                         })),
+                        // rxmap(pipeLog),
                         rxmap(of),
                         ClickFunnels.utilities.rxreducer,
                         rxmap(loorderby(["timesamp"], ["desc"])),
@@ -528,6 +567,7 @@ const ClickFunnels = {
                     )
                 ),
                 ClickFunnels.utilities.rxreducer
+                // rxmap(pipeLog)
             );
 
             customers_from_cf_with_ad_ids = customers_from_cf.pipe(rxmap(get(matching({ ads: (ads) => !isEmpty(ads) }))));
@@ -545,7 +585,7 @@ const ClickFunnels = {
                         rxmap(pipe(compact, uniq)),
                         concatMap(identity),
                         concatMap((ip_address) => {
-                            return zip([from(Events.ip("ipv4", ip_address)), from(Events.ip("ipv6", ip_address))]).pipe(
+                            return zip([from(ipEvents("ipv4", ip_address, user_id)), from(ipEvents("ipv6", ip_address, user_id))]).pipe(
                                 rxmap(flatten),
                                 concatMap(identity),
                                 rxmap(paths([["ipv4"], ["ipv6"]])),
@@ -558,15 +598,18 @@ const ClickFunnels = {
                         rxmap(compact),
                         concatMap(identity),
                         concatMap((ip_address) =>
-                            zip([from(Events.ip("ipv4", ip_address)), from(Events.ip("ipv6", ip_address))]).pipe(
+                            zip([from(ipEvents("ipv4", ip_address, user_id)), from(ipEvents("ipv6", ip_address, user_id))]).pipe(
                                 rxmap(flatten),
+                                tap((value) => console.log("size ->", size(value))),
+                                rxmap(pipe(lofilter(ClickFunnels.utilities.has_ad_id))),
+                                tap((value) => console.log("size <- ", size(value))),
                                 concatMap(identity),
                                 rxmap((event) => ({
                                     ad_id: pipe(
-                                        paths([["fb_ad_id"], ["h_ad_id"], ["fb_id"]]),
+                                        paths([["fb_ad_id"], ["h_ad_id"], ["fb_id"], ["ad_id"]]),
                                         compact,
                                         uniq,
-                                        reject((id) => id == "%7B%7Bad.id%7D%7D"),
+                                        reject((id) => id == "%7B%7Bad.id%7D%7D" || id == "{{ad.id}}"),
                                         head
                                     )(event),
                                     timestamp: pipe(Event.get_utc_timestamp)(event),
@@ -586,6 +629,7 @@ const ClickFunnels = {
                     )
                 ),
                 ClickFunnels.utilities.rxreducer
+                // rxmap(pipeLog)
             );
 
             // return customers_from_db_events;
@@ -641,31 +685,44 @@ const ClickFunnels = {
     },
 };
 
-// let date = "2022-05-05";
+exports.ClickFunnels = ClickFunnels;
 
-// let roas_user_id = "aobouNIIRJMSjsDs2dIXAwEKmiY2";
+// let date = "2022-05-18";
 
-// const queryDocs = (snapshot) => snapshot.docs.map((doc) => doc.data());
-// from(getDocs(query(collectionGroup(db, "project_accounts"), where("roas_user_id", "==", roas_user_id))))
+// let user_id = "0UwTSvyyeCRX0YJjVVLDKafAH5m2";
+
+// from(getDocs(query(collection(db, "projects"), where("roas_user_id", "==", user_id))))
 //     .pipe(
-//         rxmap(queryDocs),
+//         rxmap(ClickFunnels.utilities.queryDocs),
 //         rxmap(lofilter((project) => project.shopping_cart_name !== undefined)),
 //         rxmap(head),
 //         concatMap((project) => {
 //             return from(
-//                 getDocs(query(collectionGroup(db, "integrations"), where("account_name", "==", "facebook"), where("user_id", "==", roas_user_id)))
+//                 getDocs(query(collectionGroup(db, "integrations"), where("account_name", "==", "facebook"), where("user_id", "==", user_id)))
 //             ).pipe(
-//                 rxmap(queryDocs),
+//                 rxmap(ClickFunnels.utilities.queryDocs),
 //                 rxmap(head),
 //                 rxmap((facebook) => ({ ...facebook, ...project }))
 //             );
 //         })
 //     )
 //     .subscribe((project) => {
+//         console.log("project");
+//         console.log(project);
+
 //         let { roas_user_id: user_id, fb_ad_account_id, payment_processor_id, shopping_cart_id } = project;
 //         let payload = { user_id, fb_ad_account_id, payment_processor_id, shopping_cart_id, date };
 
-//         ClickFunnels.report.get({ user_id: roas_user_id, date, fb_ad_account_id }).subscribe(pipeLog);
+//         ClickFunnels.report.get(payload).subscribe((result) => {
+//             console.log("result");
+//             pipeLog(result);
+//         });
 //     });
 
-exports.ClickFunnels = ClickFunnels;
+// from(getDocs(query(collection(db, "events"), where("roas_user_id", "==", roas_user_id), limit(100)))).pipe(rxmap(ClickFunnels.utilities.queryDocs));
+// // .subscribe(pipeLog);
+
+// from(getDocs(query(collection(db, "clickfunnels"), where("roas_user_id", "==", roas_user_id), limit(1000)))).pipe(
+//     rxmap(ClickFunnels.utilities.queryDocs)
+// );
+// // .subscribe(pipeLog);
