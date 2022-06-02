@@ -128,18 +128,30 @@ const Facebook = {
                 if (!user_id) return throwError(`error:${func_name}:no user_id`);
                 if (!fb_ad_account_id) return throwError(`error:${func_name}:no fb_ad_account_id`);
 
-                let facebook = RoasFacebook({ user_id });
+                return from(
+                    getDocs(query(collectionGroup(db, "integrations"), where("user_id", "==", user_id), where("account_name", "==", "facebook")))
+                ).pipe(
+                    rxmap(ClickFunnels.utilities.queryDocs),
+                    rxmap(head),
+                    concatMap((fb_account_credentials) => {
+                        if (!fb_account_credentials) return rxof([]);
+                        let { access_token = "" } = fb_account_credentials;
+                        if (size(access_token) == 0) return rxof([]);
 
-                return from(facebook.ad.get({ ad_id, date, fb_ad_account_id })).pipe(
-                    rxmap(pipe(values, head)),
-                    rxfilter((ad) => !isUndefined(ad.id)),
-                    concatMap((ad) => {
-                        let adset = Facebook.ad.adset.api.get({ adset_id: ad.adset_id, user_id, date, fb_ad_account_id });
-                        let campaign = Facebook.ad.campaign.api.get({ campaign_id: ad.campaign_id, user_id, date, fb_ad_account_id });
+                        let facebook = RoasFacebook({ user_id });
 
-                        return zip([adset, campaign]).pipe(
-                            rxmap(([{ name: adset_name }, { name: campaign_name }]) => ({ ...ad, adset_name, campaign_name })),
-                            rxmap(Facebook.ad.details)
+                        return from(facebook.ad.get({ ad_id, date, fb_ad_account_id, access_token })).pipe(
+                            rxmap(pipe(values, head)),
+                            rxfilter((ad) => !isUndefined(ad.id)),
+                            concatMap((ad) => {
+                                let adset = Facebook.ad.adset.api.get({ adset_id: ad.adset_id, user_id, date, fb_ad_account_id });
+                                let campaign = Facebook.ad.campaign.api.get({ campaign_id: ad.campaign_id, user_id, date, fb_ad_account_id });
+
+                                return zip([adset, campaign]).pipe(
+                                    rxmap(([{ name: adset_name }, { name: campaign_name }]) => ({ ...ad, adset_name, campaign_name })),
+                                    rxmap(Facebook.ad.details)
+                                );
+                            })
                         );
                     }),
                     defaultIfEmpty({}),
@@ -163,9 +175,22 @@ const Facebook = {
                     if (!user_id) return throwError(`error:${func_name}:no user_id`);
                     if (!fb_ad_account_id) return throwError(`error:${func_name}:no fb_ad_account_id`);
 
-                    let facebook = RoasFacebook({ user_id });
+                    return from(
+                        getDocs(query(collectionGroup(db, "integrations"), where("user_id", "==", user_id), where("account_name", "==", "facebook")))
+                    ).pipe(
+                        rxmap(ClickFunnels.utilities.queryDocs),
+                        rxmap(head),
+                        concatMap((fb_account_credentials) => {
+                            if (!fb_account_credentials) return rxof([]);
+                            let { access_token = "" } = fb_account_credentials;
+                            if (size(access_token) == 0) return rxof([]);
 
-                    return from(facebook.adset.get({ adset_id, date, fb_ad_account_id })).pipe(rxmap(pipe(values, head)), defaultIfEmpty({}));
+                            let facebook = RoasFacebook({ user_id });
+
+                            return from(facebook.adset.get({ adset_id, date, fb_ad_account_id, access_token })).pipe(rxmap(pipe(values, head)));
+                        }),
+                        defaultIfEmpty({})
+                    );
                 },
             },
         },
@@ -181,9 +206,21 @@ const Facebook = {
                     if (!user_id) return throwError(`error:${func_name}:no user_id`);
                     if (!fb_ad_account_id) return throwError(`error:${func_name}:no fb_ad_account_id`);
 
-                    let facebook = RoasFacebook({ user_id });
+                    return from(
+                        getDocs(query(collectionGroup(db, "integrations"), where("user_id", "==", user_id), where("account_name", "==", "facebook")))
+                    ).pipe(
+                        rxmap(ClickFunnels.utilities.queryDocs),
+                        rxmap(head),
+                        concatMap((fb_account_credentials) => {
+                            if (!fb_account_credentials) return rxof([]);
+                            let { access_token = "" } = fb_account_credentials;
+                            if (size(access_token) == 0) return rxof([]);
 
-                    return from(facebook.campaign.get({ campaign_id, date, fb_ad_account_id })).pipe(rxmap(pipe(values, head)));
+                            let facebook = RoasFacebook({ user_id });
+                            return from(facebook.campaign.get({ campaign_id, date, fb_ad_account_id, access_token })).pipe(rxmap(pipe(values, head)));
+                        }),
+                        defaultIfEmpty({})
+                    );
                 },
             },
         },
@@ -415,6 +452,10 @@ const ClickFunnels = {
                 start = Number(moment(start, "x").format("X"));
                 end = Number(moment(end, "x").format("X"));
 
+                console.log("roas_user_id", roas_user_id);
+                console.log("start", start);
+                console.log("end", end);
+
                 return from(
                     getDocs(
                         query(
@@ -521,8 +562,8 @@ const ClickFunnels = {
             console.log(func_name);
 
             let orders = ClickFunnels.users.date.events(date, user_id).pipe(
+                // rxmap(pipeLog)
                 rxmap(values),
-                // rxmap(pipeLog),
                 concatMap(identity),
                 concatMap(ClickFunnels.events.orders),
                 rxmap(of),
@@ -535,9 +576,12 @@ const ClickFunnels = {
                     cart: line_items,
                     stats: ClickFunnels.order.stats.get(line_items),
                 })),
+                rxmap(pipeLog),
                 rxmap(of),
                 ClickFunnels.utilities.rxreducer
             );
+
+            // return orders;
 
             let customers_from_cf = from(orders).pipe(
                 rxmap(identity),
@@ -687,42 +731,39 @@ const ClickFunnels = {
 
 exports.ClickFunnels = ClickFunnels;
 
-// let date = "2022-05-18";
+let date = "2022-06-01";
 
-// let user_id = "0UwTSvyyeCRX0YJjVVLDKafAH5m2";
+let user_id = "FFDSye2jGTT8ky9tHu7X20zXYFJ2";
 
-// from(getDocs(query(collection(db, "projects"), where("roas_user_id", "==", user_id))))
-//     .pipe(
-//         rxmap(ClickFunnels.utilities.queryDocs),
-//         rxmap(lofilter((project) => project.shopping_cart_name !== undefined)),
-//         rxmap(head),
-//         concatMap((project) => {
-//             return from(
-//                 getDocs(query(collectionGroup(db, "integrations"), where("account_name", "==", "facebook"), where("user_id", "==", user_id)))
-//             ).pipe(
-//                 rxmap(ClickFunnels.utilities.queryDocs),
-//                 rxmap(head),
-//                 rxmap((facebook) => ({ ...facebook, ...project }))
-//             );
-//         })
-//     )
-//     .subscribe((project) => {
-//         console.log("project");
-//         console.log(project);
+from(getDocs(query(collection(db, "projects"), where("roas_user_id", "==", user_id)))).pipe(
+    rxmap(ClickFunnels.utilities.queryDocs),
+    rxmap(lofilter((project) => project.shopping_cart_name !== undefined)),
+    rxmap(head),
+    concatMap((project) => {
+        return from(
+            getDocs(query(collectionGroup(db, "integrations"), where("account_name", "==", "facebook"), where("user_id", "==", user_id)))
+        ).pipe(
+            rxmap(ClickFunnels.utilities.queryDocs),
+            rxmap(head),
+            rxmap((facebook) => ({ ...project }))
+        );
+    })
+);
+// .subscribe((project) => {
+//     console.log("project");
+//     console.log(project);
 
-//         let { roas_user_id: user_id, fb_ad_account_id, payment_processor_id, shopping_cart_id } = project;
-//         let payload = { user_id, fb_ad_account_id, payment_processor_id, shopping_cart_id, date };
+//     let { roas_user_id: user_id, fb_ad_account_id, payment_processor_id, shopping_cart_id } = project;
+//     let payload = { user_id, fb_ad_account_id, payment_processor_id, shopping_cart_id, date };
 
-//         ClickFunnels.report.get(payload).subscribe((result) => {
-//             console.log("result");
-//             pipeLog(result);
-//         });
+//     ClickFunnels.report.get(payload).subscribe((result) => {
+//         console.log("result");
+//         pipeLog(result);
 //     });
+// });
 
-// from(getDocs(query(collection(db, "events"), where("roas_user_id", "==", roas_user_id), limit(100)))).pipe(rxmap(ClickFunnels.utilities.queryDocs));
-// // .subscribe(pipeLog);
+from(getDocs(query(collection(db, "events"), where("roas_user_id", "==", user_id), limit(1000)))).pipe(rxmap(ClickFunnels.utilities.queryDocs));
+// .subscribe(pipeLog);
 
-// from(getDocs(query(collection(db, "clickfunnels"), where("roas_user_id", "==", roas_user_id), limit(1000)))).pipe(
-//     rxmap(ClickFunnels.utilities.queryDocs)
-// );
-// // .subscribe(pipeLog);
+from(getDocs(query(collection(db, "clickfunnels"), where("roas_user_id", "==", user_id), limit(1)))).pipe(rxmap(ClickFunnels.utilities.queryDocs));
+// .subscribe(pipeLog);
